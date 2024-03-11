@@ -17,9 +17,10 @@ phases:
       - echo Build started on `date`
       - echo Building the Docker image...          
       - docker build -t $IMAGE_NAME:${CODEBUILD_BUILD_NUMBER} .
-      - docker tag $IMAGE_NAME:${CODEBUILD_BUILD_NUMBER} "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE}"
+      - docker tag $IMAGE_NAME:${CODEBUILD_BUILD_NUMBER} "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_NAME}:${CODEBUILD_BUILD_NUMBER}"
+      - docker tag $IMAGE_NAME:${CODEBUILD_BUILD_NUMBER} "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_NAME}:latest"
   post_build:
     commands:
       - echo Build completed on `date`
       - echo Pushing the Docker image...
-      - docker push $ECR_IMAGE_NAME
+      - docker push "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_NAME}:latest"
