@@ -26,6 +26,7 @@ variable GITHUB_PAT {
 }
 
 # for CI/CD of terraform itself; see https://github.com/webmagicinformatica/aws-codepipeline-terraform-cicd-sample
+# fargate deployment: https://engineering.sada.com/gke-autopilot-vs-eks-fargate-a695fe687a7d
 
 resource "aws_ecr_repository" "demo_ecr" {
     image_tag_mutability = "IMMUTABLE"
