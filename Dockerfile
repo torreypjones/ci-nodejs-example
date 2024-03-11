@@ -1,5 +1,5 @@
 # Stage 1: Build the application
-FROM node:21 AS build
+FROM public.ecr.aws/docker/library/node:21
 
 # Set the working directory
 WORKDIR /app
@@ -17,7 +17,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production-ready image
-FROM node:21-alpine
+FROM public.ecr.aws/docker/library/node:21-alpine
 
 # Set the working directory in the production image
 WORKDIR /app
