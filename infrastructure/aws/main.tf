@@ -29,7 +29,7 @@ variable GITHUB_PAT {
 # fargate deployment: https://engineering.sada.com/gke-autopilot-vs-eks-fargate-a695fe687a7d
 
 resource "aws_ecr_repository" "demo_ecr" {
-    image_tag_mutability = "IMMUTABLE"
+    image_tag_mutability = "MUTABLE"
     force_delete = true #delete repo even if it contains images
     name                 = "ci-nodejs-example"
     encryption_configuration {
