@@ -1,0 +1,29 @@
+version: 0.2
+
+env:
+  shell: shell-tag
+  variables:
+    IMAGE: "$(echo $CODEBUILD_SOURCE_VERSION | cut -f2 -d '/'):${CODEBUILD_BUILD_NUMBER}"
+    ECR_IMAGE_NAME: "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE}"
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+  build:
+    commands:
+      - echo "Region = ${AWS_REGION}"
+      - echo "Account Id = $(echo $CODEBUILD_BUILD_ARN | cut -f5 -d ':')"
+      - echo "Repo Name = $(echo $CODEBUILD_SOURCE_VERSION | cut -f2 -d '/')"
+      - echo "Commit Id = ${CODEBUILD_RESOLVED_SOURCE_VERSION}"
+      - echo "Build Number = ${CODEBUILD_BUILD_NUMBER}"
+      - echo Build started on `date`
+      - echo Building the Docker image...          
+      - docker build -t $IMAGE .
+      - docker tag $IMAGE $ECR_IMAGE_NAME
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker push $ECR_IMAGE_NAME
