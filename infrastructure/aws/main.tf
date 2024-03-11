@@ -76,6 +76,7 @@ locals {
     "AWS_ACCOUNT_ID" = data.aws_caller_identity.current.account_id
     "IMAGE_REPO_NAME" = aws_ecr_repository.demo_ecr.name
     "IMAGE_TAG" = "latest"
+    "IMAGE_NAME" = "ci-nodejs-example"
   }
 }
 

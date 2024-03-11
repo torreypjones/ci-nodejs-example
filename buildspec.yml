@@ -2,7 +2,6 @@ version: 0.2
 
 env:
   variables:
-    ECR_IMAGE_NAME: "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE}"
 
 phases:
   pre_build:
@@ -13,14 +12,15 @@ phases:
     commands:
       - echo "Region = ${AWS_REGION}"
       - echo "Account Id = $(echo $CODEBUILD_BUILD_ARN | cut -f5 -d ':')"
-      - echo "Repo Name = $(echo $CODEBUILD_SOURCE_VERSION | cut -f2 -d '/')"
+      - echo "Repo Name = ${IMAGE_REPO_NAME}"
       - echo "Commit Id = ${CODEBUILD_RESOLVED_SOURCE_VERSION}"
       - echo "Build Number = ${CODEBUILD_BUILD_NUMBER}"
-      - export IMAGE="$(echo $CODEBUILD_SOURCE_VERSION | cut -f2 -d '/'):${CODEBUILD_BUILD_NUMBER}"
+      - echo "IMAGE_NAME = ${IMAGE_NAME}"
+      - echo "IMAGE = $IMAGE_NAME"
       - echo Build started on `date`
       - echo Building the Docker image...          
-      - docker build -t $IMAGE .
-      - docker tag $IMAGE $ECR_IMAGE_NAME
+      - docker build -t $IMAGE_NAME:${CODEBUILD_BUILD_NUMBER} .
+      - docker tag $IMAGE_NAME:${CODEBUILD_BUILD_NUMBER} "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE}"
   post_build:
     commands:
       - echo Build completed on `date`
