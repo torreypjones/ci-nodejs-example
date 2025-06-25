@@ -22,6 +22,10 @@ FROM public.ecr.aws/docker/library/node:21-alpine
 # Install runtime dependencies needed by native modules
 RUN apk add --no-cache libc6-compat
 
+# Create a non-root user for improved security
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+USER nextjs
+
 # Set the working directory in the production image
 WORKDIR /app
 
