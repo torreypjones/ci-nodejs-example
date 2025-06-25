@@ -1,160 +1,178 @@
 terraform {
+  required_version = ">= 1.3.0"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 4.16"
+      version = "~> 5.0"
     }
   }
-
-  required_version = ">= 1.2.0"
 }
 
 provider "aws" {
   region  = "us-west-2"
-  default_tags {
-    tags = {
-      Environment = "Demo"
-      managed_by = "terraform"
-    }
-  }
+  profile = "cloudstack"
 }
 
-variable GITHUB_PAT {
-  type = string
-  description = "Github Personal Access token to use when access GH from codebuild projects"
-  default = null
+
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.1.0"
+
+  name = "${var.app_name}-vpc"
+  cidr = "10.0.0.0/16"
+
+  azs             = ["us-west-2a", "us-west-2b"]
+  public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
+  private_subnets = ["10.0.3.0/24", "10.0.4.0/24"]
+
+  enable_nat_gateway = true
+  single_nat_gateway = true
 }
 
-# for CI/CD of terraform itself; see https://github.com/webmagicinformatica/aws-codepipeline-terraform-cicd-sample
-# fargate deployment: https://engineering.sada.com/gke-autopilot-vs-eks-fargate-a695fe687a7d
-
-resource "aws_ecr_repository" "demo_ecr" {
-    image_tag_mutability = "MUTABLE"
-    force_delete = true #delete repo even if it contains images
-    name                 = "ci-nodejs-example"
-    encryption_configuration {
-        encryption_type = "AES256"
-    }
-    image_scanning_configuration {
-        scan_on_push = false
-    }
+resource "aws_ecs_cluster" "cluster" {
+  name = "${var.app_name}-cluster"
 }
 
-# credentials to use for the codebuild projejct to access GH
-# only 1 cred per AWS environment.
-# see: https://github.com/hashicorp/terraform-provider-aws/issues/9613
+resource "aws_iam_role" "ecs_task_execution" {
+  name = "${var.app_name}-task-execution-role"
 
-resource "aws_codebuild_source_credential" "github" {
-  auth_type   = "PERSONAL_ACCESS_TOKEN"
-  server_type = "GITHUB"
-  token       = var.GITHUB_PAT
-}
-
-variable codebuild_params {
-  description = "the biggest config param's for the codebuild project"
-  type = object({
-    NAME = string
-    GIT_REPO = string
-    IMAGE = string
-    TYPE = string
-    COMPUTE_TYPE = string
-    CRED_TYPE = string
-  })
-  default = {
-  "NAME" = "ci-nodejs-example"
-  "GIT_REPO" = "https://github.com/torreypjones/ci-nodejs-example.git"
-  "IMAGE" = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
-  "TYPE" = "LINUX_CONTAINER"
-  "COMPUTE_TYPE" = "BUILD_GENERAL1_SMALL"
-  "CRED_TYPE" = "CODEBUILD"
-  }
-} 
-
-locals {
-  environment_variables = {
-    "AWS_DEFAULT_REGION" = "us-west-2"
-    "AWS_ACCOUNT_ID" = data.aws_caller_identity.current.account_id
-    "IMAGE_REPO_NAME" = aws_ecr_repository.demo_ecr.name
-    "IMAGE_TAG" = "latest"
-    "IMAGE_NAME" = "ci-nodejs-example"
-  }
-}
-
-##### Iam config
-#iam config's are stored in json files so we dont clutter up the TF
-data "local_file" "assumeRole_policy" {
-  filename = "iam-policy/assumeRole.json"
-}
-
-data "local_file" "policy" {
-  filename = "iam-policy/policy.json"
-}
-
-resource "aws_iam_role" "role" {
-  name               = "custom-cloudbuild-${var.codebuild_params.NAME}"
-  assume_role_policy = data.local_file.assumeRole_policy.content
-}
-
-# for reference to account ID
-data "aws_caller_identity" "current" {}
-
-resource "aws_iam_role_policy" "example" {
-  role = aws_iam_role.role.name
-  policy = replace(
-    replace(data.local_file.policy.content, "ACCOUNT_ID", data.aws_caller_identity.current.account_id),
-    "CODEBUILD_NAME", var.codebuild_params.NAME
-  ) 
-}
-##### END Iam config
-
-
-
-# simple codebuild project
-resource "aws_codebuild_project" "codebuild_project" {
-  name        = var.codebuild_params.NAME
-  description   = "Codebuild demo with Terraform"
-  build_timeout = "120"
-  service_role = aws_iam_role.role.arn
-
-  artifacts {
-    type = "NO_ARTIFACTS"
-  }
-
-  project_visibility     = "PRIVATE"
-  source {
-    type            = "GITHUB"
-    location        = lookup(var.codebuild_params, "GIT_REPO")
-    git_clone_depth = 1
-
-    git_submodules_config {
-      fetch_submodules = true
-    }
-  }
-
-  environment {
-    image                       = lookup(var.codebuild_params, "IMAGE")
-    type                        = lookup(var.codebuild_params, "TYPE")
-    compute_type                = lookup(var.codebuild_params, "COMPUTE_TYPE")
-    image_pull_credentials_type = lookup(var.codebuild_params, "CRED_TYPE")
-    privileged_mode             = true
-
-    dynamic "environment_variable" {
-      for_each = local.environment_variables
-      content {
-        name  = environment_variable.key
-        value = environment_variable.value
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
       }
-    }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
+  role       = aws_iam_role.ecs_task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+resource "aws_security_group" "alb_sg" {
+  name   = "${var.app_name}-alb-sg"
+  vpc_id = module.vpc.vpc_id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
-  logs_config {
-    cloudwatch_logs {
-      group_name  = "log-group"
-      stream_name = "log-stream"
-    }
-
-    s3_logs {
-      status = "DISABLED"
-    }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+resource "aws_security_group" "ecs_sg" {
+  name   = "${var.app_name}-ecs-sg"
+  vpc_id = module.vpc.vpc_id
+
+  ingress {
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_lb" "alb" {
+  name               = "${var.app_name}-alb"
+  load_balancer_type = "application"
+  subnets            = module.vpc.public_subnets
+  security_groups    = [aws_security_group.alb_sg.id]
+}
+
+resource "aws_lb_target_group" "tg" {
+  name        = "${var.app_name}-tg"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = module.vpc.vpc_id
+  target_type = "ip" # <--- This is the fix
+
+  health_check {
+    path                = "/"
+    interval            = 30
+    timeout             = 5
+    unhealthy_threshold = 2
+    healthy_threshold   = 2
+    matcher             = "200-399"
+  }
+}
+
+resource "aws_lb_listener" "listener" {
+  load_balancer_arn = aws_lb.alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg.arn
+  }
+}
+
+resource "aws_ecs_task_definition" "task" {
+  family                   = "${var.app_name}-task"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "app"
+      image     = var.ecr_image_url
+      essential = true
+      portMappings = [
+        {
+          containerPort = 3000
+          protocol      = "tcp"
+        }
+      ]
+    }
+  ])
+}
+
+resource "aws_ecs_service" "service" {
+  name            = "${var.app_name}-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.task.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets         = module.vpc.private_subnets
+    assign_public_ip = false
+    security_groups = [aws_security_group.ecs_sg.id]
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tg.arn
+    container_name   = "app"
+    container_port   = 3000
+  }
+
+  depends_on = [aws_lb_listener.listener]
+}
+
+output "load_balancer_dns" {
+  description = "Application Load Balancer DNS name"
+  value       = aws_lb.alb.dns_name
 }
